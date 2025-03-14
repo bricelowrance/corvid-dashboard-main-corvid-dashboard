@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+.bg-corvid-blue{
+    color: #23356b;
+}
+
+.text-corvid-blue{
+    color: #23356b;
+}
+
+.text-green {
+    color: green;
+}
+
+thead {
+    position: sticky;
+    top: 0;
+    background-color: white;
+    z-index: 2;
+}
