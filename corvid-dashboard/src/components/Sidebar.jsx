@@ -8,9 +8,11 @@ const ALL_SIDEBAR_ITEMS = [
     { name: "Balance Sheet", icon: BarChart2, color: "#23356b", href: "/bs", roles: ["ADMIN", "FINANCE", "EXECUTIVE"] },
     { name: "Statement of Cash Flow", icon: BarChart2, color: "#23356b", href: "/cf", roles: ["ADMIN", "FINANCE", "EXECUTIVE"] },
     { name: "IC Vote", icon: Vote, color: "#23356b", href: "/vote", roles: ["ADMIN", "EMPLOYEE"] },
+    { name: "IC Manage", icon: Vote, color: "#23356b", href: "/manage", roles: ["ADMIN", "EMPLOYEE"] },
     { name: "IC Exec", icon: Landmark, color: "#23356b", href: "/exec", roles: ["ADMIN", "EXECUTIVE"] }, 
     { name: "Employee Directory", icon: BookUser, color: "#23356b", href: "/direct", roles: ["ADMIN", "FINANCE", "EXECUTIVE", "EMPLOYEE"] },
     { name: "Edit Profile", icon: UserRoundPen, color: "#23356b", href: "/profile", roles: ["ADMIN", "FINANCE", "EXECUTIVE", "EMPLOYEE"] },
+    { name: "IC Admin", icon: UserRoundPen, color: "#23356b", href: "/icadmin", roles: ["ADMIN"] },
 ];
 
 const Sidebar = () => {

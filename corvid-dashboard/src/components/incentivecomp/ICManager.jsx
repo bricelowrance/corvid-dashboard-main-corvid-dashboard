@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { ChevronDown } from "lucide-react";
 
-const ICVoterTables = () => {
+const ICManager = () => {
   // --- STATE VARIABLES ---
     const [charges, setCharges ] = useState([]);
     const [allocationsMap, setAllocationsMap] = useState({});
@@ -36,8 +36,7 @@ const ICVoterTables = () => {
         fetch(`http://localhost:5001/user-mods?email=${user.email}`)
             .then((response) => response.json())
             .then((data) => {
-                setCharges(data.mods);
-
+                setCharges(data.mods)
                 const organizedBreakouts = {};
                 data.breakouts.forEach(b => {
                     if (!organizedBreakouts[b.mod_id]) {
@@ -258,7 +257,6 @@ const ICVoterTables = () => {
                 alert("Allocation submitted successfully!");
                 setIsSubmitted(true);
 
-                // Clear the saved draft
                 try {
                     await fetch("http://localhost:5001/clear-draft", {
                         method: "DELETE",
@@ -305,10 +303,9 @@ const ICVoterTables = () => {
                     if (nextUnsubmitted) {
                         handleRowClick(nextUnsubmitted);
                     } else {
-                        setSelectedCharge(null); 
+                        setSelectedCharge(null);
                     }
                 }, 0);
-
     
             } else {
                 alert(`Error: ${data.error}`);
@@ -394,17 +391,23 @@ const ICVoterTables = () => {
         );
         
     
-        if (totalBreakoutFunding > breakoutMod.funding_amount) {
-            alert(`Total breakout funding (${totalBreakoutFunding}) exceeds available funding (${breakoutMod.funding_amount}).`);
+        const roundedTotal = Math.round(totalBreakoutFunding * 100) / 100;
+        const roundedAvailable = Math.round(breakoutMod.funding_amount * 100) / 100;
+
+        if (roundedTotal > roundedAvailable) {
+            alert(`Total breakout funding (${roundedTotal}) exceeds available funding (${roundedAvailable}).`);
             return;
         }
+
 
         const remainingFunding = breakoutMod.funding_amount - totalBreakoutFunding;
+        const roundedRemaining = Math.round(remainingFunding * 100) / 100;
 
-        if (remainingFunding !== 0) {
-            alert(`Cannot submit. Funding amount remaining must be $0. You still have $${remainingFunding.toFixed(2)} unallocated.`);
+        if (Math.abs(roundedRemaining) > 0.009) { 
+            alert(`Cannot submit. Funding amount remaining must be $0. You still have $${roundedRemaining.toFixed(2)} unallocated.`);
             return;
         }
+
     
         try {
             const response = await fetch("http://localhost:5001/update-breakouts", {
@@ -566,8 +569,10 @@ const ICVoterTables = () => {
             const data = await response.json();
             if (response.ok) {
                 alert("Tips submitted!");
+    
 
                 setSubmittedTips((prev) => [...prev, ...newTipAllocations]);
+    
 
                 setNewTipAllocations([]);
             } else {
@@ -658,7 +663,7 @@ const ICVoterTables = () => {
             [activeTab]: updatedCharge
         }));
 
-        setIsSubmitted(false);
+        setIsSubmitted(false); 
 
         const currentAllocations = allocationsMap[updatedCharge.mod_id];
 
@@ -782,19 +787,31 @@ const ICVoterTables = () => {
             const data = await response.json();
             if (response.ok) {
                 alert("Unsubmitted successfully!");
-
+    
+    
                 setAllocationsMap(prev => {
                     const updated = { ...prev };
                     delete updated[modId];
                     return updated;
                 });
     
+
                 for (const parentId in subMods) {
                     const updatedBreakouts = subMods[parentId].map(b =>
                         b.mod_id === modId ? { ...b, isSubmitted: false } : b
                     );
                     setSubMods(prev => ({ ...prev, [parentId]: updatedBreakouts }));
                 }
+
+                setTimeout(() => {
+                    const nextSubmitted = submittedCharges.filter(c => c.mod_id !== modId)[0];
+                    if (nextSubmitted) {
+                        handleRowClick(nextSubmitted);
+                    } else {
+                        setSelectedCharge(null); 
+                    }
+                }, 0);
+
     
             } else {
                 alert(`Error: ${data.error}`);
@@ -804,6 +821,8 @@ const ICVoterTables = () => {
             alert("Server error.");
         }
     };
+    
+
 
     useEffect(() => {
         const user = JSON.parse(localStorage.getItem("user"));
@@ -918,9 +937,9 @@ const ICVoterTables = () => {
     return (
         <div className="flex flex-col flex-1 w-full">
             <div className="bg-white shadow-lg p-10 border border-gray-700 flex flex-col flex-1 w-full">
-                <h2 className="text-xl font-extrabold text-red-600 mb-6 text-center">
-                    *** Important Deadlines: Allocation votes must be submitted by April 15th
-                    and payroll will be processed April 22nd ***
+                <h2 className="text-xl font-extrabold text-corvid-blue mb-6 text-center">
+                    
+
                 </h2>
                 <div className="flex justify-left space-x-4 mb-4">
                     <button 
@@ -980,25 +999,39 @@ const ICVoterTables = () => {
                                                 <td className="w-1/5 px-4 py-2 font-bold">
                                                     {charge.funding_amount ? (
                                                         <div className="flex justify-between">
-                                                            <span>$</span>
-                                                            <span>{new Intl.NumberFormat("en-US", { style: "decimal", minimumFractionDigits: 2 }).format(charge.funding_amount)}</span>
+                                                        <span>$</span>
+                                                        <span>{new Intl.NumberFormat("en-US", { style: "decimal", minimumFractionDigits: 2 }).format(charge.funding_amount)}</span>
                                                         </div>
                                                     ) : (
                                                         "N/A"
                                                     )}
                                                 </td>
-                                                <td className="w-1/5 px-4 py-4 font-bold">{charge.funding_type}</td>
-                                                <td className="w-1/5 px-4 py-2 text-right">
-                                                    {subMods[charge.mod_id]?.some(b => !allocationsMap[b.mod_id] || allocationsMap[b.mod_id].length === 0) && (
-                                                        <button 
-                                                            className="text-sm bg-gray-400 text-white rounded p-1"
-                                                            onClick={() => toggleDropdown(charge.mod_id)}
-                                                        >
-                                                            <ChevronDown
-                                                                className={`transition-transform duration-200 ${expandedMods[charge.mod_id] ? "rotate-180" : ""}`}
-                                                            />
-                                                        </button>
-                                                    )}
+                                                <td className="w-1/5 px-4 py-2 font-bold">{charge.funding_type}</td>
+                                                <td className="w-1/5 px-4 py-4">
+                                                    <div className="w-full flex justify-end items-right gap-2">
+                                                        {subMods[charge.mod_id]?.some(b => !allocationsMap[b.mod_id] || allocationsMap[b.mod_id].length === 0) && (
+                                                            <button 
+                                                                className="text-sm bg-gray-400 text-white rounded p-1"
+                                                                onClick={() => toggleDropdown(charge.mod_id)}
+                                                            >
+                                                                <ChevronDown
+                                                                    className={`transition-transform duration-200 ${expandedMods[charge.mod_id] ? "rotate-180" : ""}`}
+                                                                />
+                                                            </button>
+                                                        )}
+
+                                                        {activeTab !== "submitted" && (
+                                                            <button 
+                                                                className="w-full px-2 py-1 font-bold bg-gray-400 text-white rounded"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation(); 
+                                                                    handleBreakoutMod(charge);
+                                                                }}
+                                                            >
+                                                                {subMods[charge.mod_id]?.length > 0 ? "Edit" : "Breakout"}
+                                                            </button>
+                                                        )}
+                                                    </div>
 
                                                     {activeTab === "submitted" && (
                                                         <button
@@ -1293,10 +1326,13 @@ const ICVoterTables = () => {
 
                                                     const remainingFunding = breakoutMod.funding_amount - totalAllocated + Number(subMod.funding_amount || 0);
 
-                                                    if (value > remainingFunding) {
-                                                        alert(`Breakout funding cannot exceed remaining amount: ${remainingFunding}`);
+                                                    const roundedRemaining = Math.round(remainingFunding * 100) / 100;
+
+                                                    if (value > roundedRemaining) {
+                                                        alert(`Breakout funding cannot exceed remaining amount: ${roundedRemaining.toFixed(2)}`);
                                                         return;
                                                     }
+
 
                                                     setSubMods(prev => ({
                                                         ...prev,
@@ -1384,7 +1420,12 @@ const ICVoterTables = () => {
                                             {captureLeads.map((lead, index) => (
                                                 <li key={index} className="flex justify-between items-center p-2 border-b last:border-b-0">
                                                     <span className="text-corvid-blue">{lead}</span>
-                                                    
+                                                    <button
+                                                        className="px-2 py-1 bg-gray-300 text-white rounded"
+                                                        onClick={() => setCaptureLeads(captureLeads.filter(l => l !== lead))}
+                                                    >
+                                                        X
+                                                    </button>
                                                 </li>
                                             ))}
                                         </ul>
@@ -1566,4 +1607,4 @@ const ICVoterTables = () => {
     );
 };
 
-export default ICVoterTables;
+export default ICManager;

@@ -16,7 +16,7 @@ const IncomeStatements2 = () => {
         const fetchData = async () => {
             try {
                 setLoading(true);
-                const response = await axios.get("http://localhost:5000/income-summary", {
+                const response = await axios.get("http://localhost:5001/income-summary", {
                     params: { year, period, entity },
                 });
 
@@ -144,6 +144,7 @@ const IncomeStatements2 = () => {
                         >
                             <option>2023</option>
                             <option>2024</option>
+                            <option>2025</option>
                         </select>
                     </div>
 

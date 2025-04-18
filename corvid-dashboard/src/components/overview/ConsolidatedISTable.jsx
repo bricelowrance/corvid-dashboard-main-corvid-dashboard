@@ -7,8 +7,6 @@ const ConsolidatedISTable = () => {
     const [loading, setLoading] = useState(true);
 
     const months = [
-        "Jan 2024",
-        "Feb 2024",
         "Mar 2024",
         "Apr 2024",
         "May 2024",
@@ -19,12 +17,15 @@ const ConsolidatedISTable = () => {
         "Oct 2024",
         "Nov 2024",
         "Dec 2024",
+        "Jan 2025",
+        "Feb 2025"
     ];
 
     const categories = [
         "REVENUE",
         "EXPENSE",
         "NET INCOME",
+        "ADJUSTED NET INCOME",
         "DEPRECIATION",
         "TAXES",
         "AMORTIZATION",
@@ -35,7 +36,7 @@ const ConsolidatedISTable = () => {
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const response = await axios.get("http://localhost:5000/income", {
+                const response = await axios.get("http://localhost:5001/income", {
                     params: { entity: selectedCompany === "Consolidated" ? undefined : selectedCompany },
                 });
     
@@ -67,7 +68,7 @@ const ConsolidatedISTable = () => {
                 <h2 className="text-xl font-extrabold text-corvid-blue mb-6 text-center">
                     {selectedCompany} Income Statement
                 </h2>
-                <h3 className="text-lg text-corvid-blue font-bold mb-8 text-center">For the Year 2024</h3>
+                <h3 className="text-lg text-corvid-blue font-bold mb-8 text-center">Trailing 12</h3>
 
                 <div className="mb-6">
                     <label htmlFor="companySelect" className="block text-corvid-blue font-semibold mb-2 text-sm">

@@ -8,9 +8,11 @@ import ICVoter from "./pages/ICVoter";
 import Directory from "./pages/Directory";
 import Profile from "./pages/Profile";
 import LoginPage from "./pages/LoginPage";
+import ICManage from "./pages/ICManage";
 import { googleLogout } from "@react-oauth/google";
 import { jwtDecode } from "jwt-decode"; 
 import ICExec from "./pages/ICExec";
+import ICAdmin from "./pages/ICAdmin";
 
 function App() {
     const [user, setUser] = useState(null);
@@ -74,6 +76,8 @@ function App() {
                                         <Route path="/bs" element={<BSPage />} />
                                         <Route path="/cf" element={<CFPage />} />
                                         <Route path="/vote" element={<ICVoter />} />
+                                        <Route path="/manage" element={<ICManage />} />
+                                        <Route path="/icadmin" element={<ICAdmin />} />
                                         <Route path="/exec" element={<ICExec />} />
                                         <Route path="/direct" element={<Directory />} />
                                         <Route path="/profile" element={<Profile />} />

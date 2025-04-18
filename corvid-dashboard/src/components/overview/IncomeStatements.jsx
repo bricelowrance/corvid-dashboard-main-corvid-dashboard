@@ -3,8 +3,8 @@ import { ChevronDown } from "lucide-react";
 import axios from "axios";
 
 const IncomeStatements = () => {
-    const [year, setYear] = useState("2024");
-    const [period, setPeriod] = useState("1");
+    const [year, setYear] = useState("2025");
+    const [period, setPeriod] = useState("2");
     const [entity, setEntity] = useState("CORVID");
     const [financialData, setFinancialData] = useState([]);
     const [prevFinancialData, setPrevFinancialData] = useState([]);
@@ -17,21 +17,42 @@ const IncomeStatements = () => {
         const fetchData = async () => {
             try {
                 setLoading(true);
-                const response = await axios.get("http://localhost:5000/income-summary", {
+                const response = await axios.get("http://localhost:5001/income-summary", {
                     params: { year, period, entity },
                 });
 
                 let prevYear = year;
                 let prevPeriod = period - 1;
                 if (prevPeriod === 0) {
-                    prevPeriod = 12; 
+                    prevPeriod = 12;
                     prevYear = (parseInt(year) - 1).toString();
                 }
 
-                const prevResponse = await axios.get("http://localhost:5000/income-summary", {
+                const prevResponse = await axios.get("http://localhost:5001/income-summary", {
                     params: { year: prevYear, period: prevPeriod, entity },
                 });
 
+                const aggregatedData = response.data.reduce((acc, { category, subcategory, sub_subcategory, total_amount }) => {
+                    if (!acc[category]) {
+                        acc[category] = { category, total_amount: 0, subcategories: [] };
+                    }
+                    acc[category].total_amount += Number(total_amount) || 0;
+                
+                    let sub = acc[category].subcategories.find(s => s.subcategory === subcategory);
+                    if (!sub) {
+                        sub = { subcategory, amount: 0, sub_subcategories: [] };
+                        acc[category].subcategories.push(sub);
+                    }
+                
+                    if (sub_subcategory) {
+                        sub.sub_subcategories.push({ sub_subcategory, amount: Number(total_amount) || 0 });
+                    } else {
+                        sub.amount += Number(total_amount) || 0;
+                    }
+                
+                    return acc;
+                }, {});
+                
                 const categoryOrder = {
                     CYBER: ["REVENUE", "COSTS OF GOODS SOLD", "INDIRECT COST", "OTHER INDIRECTS", "TAXES", "DEPRECIATION"],
                     TRDP: ["RECURRING REVENUE", "NON-RECURRING REVENUE", "OPERATING COSTS", "FINANCING COST", "NON CASH EXPENSE"],
@@ -41,56 +62,36 @@ const IncomeStatements = () => {
                     TALON: ["REVENUE", "DIRECT COST", "INDIRECT COST", "DEPRECIATION", "PHANTOM PLAN EXPENSE", "OPERATING COSTS"],
                     CORVID: ["REVENUE", "DIRECT COST", "INDIRECT COST", "UNALLOWABLE/OTHER", "INTEREST EXPENSE"],
                 };
-    
-                const aggregatedData = response.data.reduce((acc, { category, subcategory, total_amount }) => {
-                    if (!acc[category]) {
-                        acc[category] = { category, total_amount: 0, subcategories: [] };
-                    }
-                    acc[category].total_amount += Number(total_amount) || 0;
-                    acc[category].subcategories.push({ subcategory, amount: Number(total_amount) || 0 });
-                    return acc;
-                }, {});
-    
+                
                 const orderedData = Object.values(aggregatedData).sort((a, b) => {
                     const order = categoryOrder[entity] || [];
-                    return (order.indexOf(a.category) - order.indexOf(b.category));
+                    return order.indexOf(a.category) - order.indexOf(b.category);
                 });
 
-                const prevAggregatedData = prevResponse.data.reduce((acc, { category, subcategory, total_amount }) => {
-                    if (!acc[category]) {
-                        acc[category] = { category, total_amount: 0, subcategories: [] };
-                    }
-                    acc[category].total_amount += Number(total_amount) || 0;
-                    acc[category].subcategories.push({ subcategory, amount: Number(total_amount) || 0 });
-                    return acc;
-                }, {});
-    
                 setFinancialData(orderedData);
-                setPrevFinancialData(prevAggregatedData);
+                setPrevFinancialData(prevResponse.data);
             } catch (error) {
                 console.error("Error fetching financial data:", error);
             } finally {
                 setLoading(false);
             }
         };
-    
+
         fetchData();
     }, [year, period, entity]);
-    
 
     const toggleCategory = (category) => {
-        setExpandedCategories((prev) => ({
+        setExpandedCategories(prev => ({
             ...prev,
             [category]: !prev[category],
         }));
     };
 
-    const getAmount = (category) => financialData.find((item) => item.category === category)?.total_amount || 0;
+    const getAmount = (category) => financialData.find(item => item.category === category)?.total_amount || 0;
     const getSubAmount = (category, subcategory) => {
-        const categoryItem = financialData.find((item) => item.category === category);
+        const categoryItem = financialData.find(item => item.category === category);
         if (!categoryItem || !categoryItem.subcategories) return 0;
-    
-        const subItem = categoryItem.subcategories.find((sub) => sub.subcategory === subcategory);
+        const subItem = categoryItem.subcategories.find(sub => sub.subcategory === subcategory);
         return subItem ? subItem.amount : 0;
     };
 
@@ -173,38 +174,25 @@ const IncomeStatements = () => {
                 <div className="flex justify-between mb-6">
                     <div>
                         <label className="block text-corvid-blue font-semibold mb-2 text-sm">Select Year:</label>
-                        <select
-                            value={year}
-                            onChange={(e) => setYear(e.target.value)}
-                            className="bg-gray-200 text-corvid-blue px-4 py-2 rounded text-sm"
-                        >
+                        <select value={year} onChange={(e) => setYear(e.target.value)} className="bg-gray-200 text-corvid-blue px-4 py-2 rounded text-sm">
                             <option>2023</option>
                             <option>2024</option>
+                            <option>2025</option>
                         </select>
                     </div>
 
                     <div>
                         <label className="block text-corvid-blue font-semibold mb-2 text-sm">Select Month:</label>
-                        <select
-                            value={period}
-                            onChange={(e) => setPeriod(e.target.value)}
-                            className="bg-gray-200 text-corvid-blue px-4 py-2 rounded text-sm"
-                        >
+                        <select value={period} onChange={(e) => setPeriod(e.target.value)} className="bg-gray-200 text-corvid-blue px-4 py-2 rounded text-sm">
                             {months.map((month, index) => (
-                                <option key={index + 1} value={index + 1}>
-                                    {month}
-                                </option>
+                                <option key={index + 1} value={index + 1}>{month}</option>
                             ))}
                         </select>
                     </div>
 
                     <div>
                         <label className="block text-corvid-blue font-semibold mb-2 text-sm">Select Company:</label>
-                        <select
-                            value={entity}
-                            onChange={(e) => setEntity(e.target.value)}
-                            className="bg-gray-200 text-corvid-blue px-4 py-2 rounded text-sm"
-                        >
+                        <select value={entity} onChange={(e) => setEntity(e.target.value)} className="bg-gray-200 text-corvid-blue px-4 py-2 rounded text-sm">
                             <option value="CORVID">CORVID</option>
                             <option value="ATEA">ATEA</option>
                             <option value="CYBER">CYBER</option>
@@ -228,40 +216,50 @@ const IncomeStatements = () => {
                         </thead>
                         <tbody>
                             {financialData.map(({ category, total_amount, subcategories }) => {
-                                const hasDistinctSubcategories = subcategories.some(({ subcategory }) => subcategory !== category);
+                                const hasExpandableContent = subcategories.some(
+                                    (sub) => sub.sub_subcategories?.length > 0
+                                ) || subcategories.length > 1;
+                                
 
                                 return (
                                     <React.Fragment key={category}>
                                         <tr className="bg-gray-200 text-corvid-blue font-bold">
                                             <td
-                                                className={`px-4 py-2 flex items-center ${
-                                                    hasDistinctSubcategories ? "cursor-pointer" : ""
-                                                }`} 
-                                                onClick={() => hasDistinctSubcategories && toggleCategory(category)}
+                                                className={`px-4 py-2 flex items-center ${hasExpandableContent ? "cursor-pointer" : ""}`}
+                                                onClick={() => hasExpandableContent && toggleCategory(category)}
                                             >
                                                 {category}
-                                                {hasDistinctSubcategories && (
+                                                {hasExpandableContent && (
                                                     <ChevronDown
-                                                        className={`transition-transform ${
-                                                            expandedCategories[category] ? "rotate-180" : ""
-                                                        }`}
+                                                        className={`transition-transform ml-1 ${expandedCategories[category] ? "rotate-180" : ""}`}
                                                     />
                                                 )}
-                                                
                                             </td>
-                                            <td className="px-4 py-2 text-right">
-                                                ${total_amount.toLocaleString("en-US")}
-                                            </td>
+                                            <td className="px-4 py-2 text-right">${total_amount.toLocaleString("en-US")}</td>
                                         </tr>
 
-                                        {hasDistinctSubcategories &&
-                                            expandedCategories[category] &&
-                                            subcategories.map(({ subcategory, amount }, index) => (
-                                                <tr key={`subcategory-${category}-${index}`} className="text-sm text-corvid-blue text-gray-600">
-                                                    <td className="px-6 py-1">{subcategory}</td>
-                                                    <td className="px-4 py-1 text-right">${amount.toLocaleString("en-US")} </td>
-                                                </tr>
-                                            ))}
+                                        {expandedCategories[category] &&
+                                            subcategories.map(({ subcategory, amount, sub_subcategories = [] }, subIndex) => {
+                                                const hasSubSubs = sub_subcategories.length > 0;
+
+                                                return (
+                                                    <React.Fragment key={`subcategory-${category}-${subIndex}`}>
+                                                        <tr className="text-sm text-corvid-blue font-semibold">
+                                                            <td className="px-6 py-1">{subcategory}</td>
+                                                            <td className="px-4 py-1 text-right">
+                                                                {!hasSubSubs && `$${amount.toLocaleString("en-US")}`}
+                                                            </td>
+                                                        </tr>
+                                                        {hasSubSubs &&
+                                                            sub_subcategories.map(({ sub_subcategory, amount }, subSubIndex) => (
+                                                                <tr key={`subsub-${category}-${subIndex}-${subSubIndex}`} className="text-sm text-gray-600">
+                                                                    <td className="px-8 py-1">– {sub_subcategory}</td>
+                                                                    <td className="px-4 py-1 text-right">${amount.toLocaleString("en-US")}</td>
+                                                                </tr>
+                                                            ))}
+                                                    </React.Fragment>
+                                                );
+                                            })}
                                     </React.Fragment>
                                 );
                             })}
@@ -278,13 +276,6 @@ const IncomeStatements = () => {
                             <tr className="bg-gray-800 text-white font-bold">
                                 <td className="px-4 py-2">EBITDA</td>
                                 <td className="px-4 py-2 text-right">${ebitda.toLocaleString("en-US")}</td>
-                            </tr>
-                            <tr>
-                                {year === "2024" && period === "12" && entity === "TALON" && (
-                                    <p className="mt-4 text-red-600 font-bold">
-                                        * NOTE: Phantom Plan Expense NOT INCLUDED in Net Income or EBITDA Calculations. *
-                                    </p>
-                                )}
                             </tr>
                         </tfoot>
                     </table>
