@@ -24,6 +24,7 @@ const ICExecTable = () => {
     const [historicalMap, setHistoricalMap] = useState({});
     const [editedAverages, setEditedAverages] = useState({});
     const [flaggedRows, setFlaggedRows] = useState([]);
+    const [approvedAllocationsMap, setApprovedAllocationsMap] = useState({});
 
     useEffect(() => {
         fetch("http://localhost:5001/directory") 
@@ -45,15 +46,28 @@ const ICExecTable = () => {
                     payout_percentage: match ? match.payout_percentage : mod.payout_percentage
                   };
                 });
-              
+            
                 setCharges(enriched);
-              
-                const flagged = data
-                  .filter(mod => mod.flagged_for_approval)
-                  .map(mod => mod.mod_id);
-              
+            
+                // Flagged mod and breakout IDs
+                const flagged = [];
+            
+                data.forEach(mod => {
+                    if (mod.flagged_for_approval) {
+                        flagged.push(mod.mod_id);
+                    }
+                    if (mod.breakouts) {
+                        mod.breakouts.forEach(b => {
+                            if (b.flagged_for_approval) {
+                                flagged.push(b.breakout_id);
+                            }
+                        });
+                    }
+                });
+            
                 setFlaggedRows(flagged);
-              })
+            })
+            
               
             .catch((error) => console.error("Error fetching mod data:", error));
     }, [payoutPercentages]);
@@ -64,6 +78,15 @@ const ICExecTable = () => {
             handleRowClick(charges[0]);
         }
     }, [charges]);
+
+    useEffect(() => {
+        if (activeTab !== "payouts" && filteredChargesByTab.length > 0) {
+          handleRowClick(filteredChargesByTab[0]);
+        } else {
+          setSelectedCharge(null); // clear right panel if payouts tab
+        }
+      }, [activeTab]);
+      
 
     useEffect(() => {
         fetch("http://localhost:5001/approved-mod-ids")
@@ -100,6 +123,32 @@ const ICExecTable = () => {
             })
             .catch(err => console.error("Error loading historical payouts:", err));
     }, []);
+
+    useEffect(() => {
+        const loadAll = async () => {
+            if ((activeTab === "unapproved" || activeTab === "approved") && charges.length > 0) {
+                try {
+                    const res = await fetch("http://localhost:5001/approved-mod-ids");
+                    const data = await res.json();
+                    const approvedIds = data.map(row => row.breakout_id || row.mod_id);
+                    setApprovedMods(approvedIds);
+    
+                    // wait for setApprovedMods to settle before fetching breakouts
+                    await new Promise(resolve => setTimeout(resolve, 0));
+    
+                    await fetchBreakoutsForCharges();
+                } catch (err) {
+                    console.error("Error loading approved mod IDs and breakouts:", err);
+                }
+            }
+        };
+    
+        loadAll();
+    }, [activeTab, charges, payoutPercentages]);
+    
+    
+    
+    
     
     
     const handleRowClick = async (charge) => {
@@ -186,9 +235,14 @@ const ICExecTable = () => {
             const notesData = await notesResponse.json();
             setNotes(notesData);
 
-            const notesRes = await fetch(`http://localhost:5001/approved-financial-note/${selectedModId}`);
-            const noteData = await notesRes.json();
+            let noteData = await fetch(`http://localhost:5001/approved-financial-note/${selectedModId}`).then(res => res.json());
+
+            if (!noteData.financial_notes) {
+            noteData = await fetch(`http://localhost:5001/draft-financial-note/${selectedModId}`).then(res => res.json());
+            }
+
             setApproverNote(noteData.financial_notes || "");
+
 
     
         } catch (error) {
@@ -197,42 +251,45 @@ const ICExecTable = () => {
     };
     
 
-    useEffect(() => {
-        if (charges.length > 0) {
-            charges.forEach(async (charge) => {
-                try {
-                    const breakoutResponse = await fetch(`http://localhost:5001/breakouts/${charge.mod_id}`);
-                    const breakoutData = await breakoutResponse.json();
+    const fetchBreakoutsForCharges = async () => {
+        const newSubMods = {};
+        const newFlaggedBreakouts = [];
     
-                    if (breakoutData.length > 0) {
-                        const updated = breakoutData.map(b => {
-                            const match = payoutPercentages.find(p =>
-                                p.breakout_id === b.breakout_id
-                            );
-                            return {
-                                ...b,
-                                parent_mod_id: charge.mod_id,
-                                payout_percentage: match ? match.payout_percentage : b.payout_percentage
-                            };
-                        });
+        for (const charge of charges) {
+            try {
+                const res = await fetch(`http://localhost:5001/breakouts/${charge.mod_id}`);
+                const data = await res.json();
     
-                        setSubMods(prev => ({
-                            ...prev,
-                            [charge.mod_id]: updated
-                        }));
-    
-                        setExpandedMods(prev => ({
-                            ...prev,
-                            [charge.mod_id]: true
-                        }));
+                const updated = data.map(b => {
+                    if (b.flagged_for_approval) {
+                        newFlaggedBreakouts.push(b.breakout_id);
                     }
-                } catch (error) {
-                    console.error(`Error fetching breakouts for ${charge.mod_id}:`, error);
-                }
-            });
-        }
-    }, [charges, payoutPercentages]);
     
+                    const match = payoutPercentages.find(p => p.breakout_id === b.breakout_id);
+                    return {
+                        ...b,
+                        parent_mod_id: charge.mod_id,
+                        payout_percentage: match ? match.payout_percentage : b.payout_percentage,
+                        flagged_for_approval: b.flagged_for_approval
+                    };
+                });
+    
+                if (updated.length > 0) {
+                    newSubMods[charge.mod_id] = updated;
+                }
+    
+            } catch (error) {
+                console.error(`Error fetching breakouts for ${charge.mod_id}:`, error);
+            }
+        }
+    
+        setSubMods(newSubMods);
+        setExpandedMods(Object.keys(newSubMods).reduce((acc, id) => ({ ...acc, [id]: true }), {}));
+        setFlaggedRows(prev => [...new Set([...prev, ...newFlaggedBreakouts])]);
+    };
+    
+    
+      
     const toggleDropdown = (modId) => {
         setExpandedMods(prev => ({
             ...prev,
@@ -255,38 +312,44 @@ const ICExecTable = () => {
     
 
     const filteredChargesByTab = (() => {
-        let combined = [];
-      
+        const isApproved = id => approvedMods.includes(id);
+    
+        let filtered = [];
+    
         if (activeTab === "approved") {
-          const approvedModsOnly = charges.filter(mod => approvedMods.includes(mod.mod_id));
-          const approvedBreakoutsOnly = Object.values(subMods)
-            .flat()
-            .filter(b => approvedMods.includes(b.breakout_id));
-          combined = [...approvedModsOnly, ...approvedBreakoutsOnly];
+            // Include mods that are approved OR have any approved breakouts
+            filtered = charges.filter(mod => {
+                const isModApproved = isApproved(mod.mod_id);
+                const breakouts = subMods[mod.mod_id] || [];
+                const hasApprovedBreakout = breakouts.some(b => isApproved(b.breakout_id));
+                return isModApproved || hasApprovedBreakout;
+            });
         } else if (activeTab === "unapproved") {
-          combined = charges.filter(charge => !approvedMods.includes(charge.mod_id));
+            // Mods that are not approved and do not have all breakouts approved
+            filtered = charges.filter(mod => {
+                const isModApproved = isApproved(mod.mod_id);
+                const breakouts = subMods[mod.mod_id] || [];
+                const allBreakoutsApproved = breakouts.length > 0 && breakouts.every(b => isApproved(b.breakout_id));
+                return !isModApproved && !allBreakoutsApproved;
+            });
         } else {
-          combined = charges;
+            filtered = charges;
         }
-      
-        return combined.sort((a, b) => {
-          const idA = a.breakout_id || a.mod_id;
-          const idB = b.breakout_id || b.mod_id;
-      
-          const splitA = idA.split(/[^0-9]+/).map(Number);
-          const splitB = idB.split(/[^0-9]+/).map(Number);
-      
-          for (let i = 0; i < Math.max(splitA.length, splitB.length); i++) {
-            if ((splitA[i] || 0) !== (splitB[i] || 0)) {
-              return (splitA[i] || 0) - (splitB[i] || 0);
+    
+        return filtered.sort((a, b) => {
+            const idA = a.breakout_id || a.mod_id;
+            const idB = b.breakout_id || b.mod_id;
+            const splitA = idA.split(/[^0-9]+/).map(Number);
+            const splitB = idB.split(/[^0-9]+/).map(Number);
+            for (let i = 0; i < Math.max(splitA.length, splitB.length); i++) {
+                if ((splitA[i] || 0) !== (splitB[i] || 0)) {
+                    return (splitA[i] || 0) - (splitB[i] || 0);
+                }
             }
-          }
-          return 0;
+            return 0;
         });
-      })();
-      
-
-      
+    })();
+    
       const handleApprove = async () => {
         if (!selectedCharge || !allocations || Object.keys(allocations).length === 0) {
             console.log("No selected charge or allocations.");
@@ -300,7 +363,9 @@ const ICExecTable = () => {
         const payouts = Object.entries(allocations).map(([fullName, allocationData]) => {
             const values = Object.values(allocationData)
                 .map(val => (val !== undefined && val !== null ? parseFloat(val) : 0));
-                const editedValue = editedAverages[fullName];
+                const avgKey = `${fullName}|${selectedCharge.mod_id}`;
+                const editedValue = editedAverages[avgKey];
+
                 const avg = editedValue !== undefined && editedValue !== null
                   ? editedValue
                   : values.length
@@ -354,6 +419,11 @@ const ICExecTable = () => {
 
                 setSelectedCharge(null);
 
+                if (filteredChargesByTab.length > 0) {
+                    handleRowClick(filteredChargesByTab[0]);
+                  }
+                  
+
     
         } catch (err) {
             console.error("Error approving payouts:", err);
@@ -371,27 +441,40 @@ const ICExecTable = () => {
       }, [activeTab]);
 
       const calculateTotalPayoutPool = () => {
-        return charges.reduce((total, charge) => {
+        return parseFloat(charges.reduce((total, charge) => {
             if (subMods[charge.mod_id] && subMods[charge.mod_id].length > 0) {
-                return (
-                    total +
-                    subMods[charge.mod_id].reduce((subTotal, b) => {
-                        if (b.funding_amount && b.payout_percentage) {
-                            return subTotal + b.funding_amount * (b.payout_percentage / 100);
-                        }
-                        return subTotal;
-                    }, 0)
-                );
+                return total + subMods[charge.mod_id].reduce((subTotal, b) => {
+                    if (b.funding_amount && b.payout_percentage) {
+                        return subTotal + b.funding_amount * (b.payout_percentage / 100);
+                    }
+                    return subTotal;
+                }, 0);
             } else if (charge.funding_amount && charge.payout_percentage) {
                 return total + charge.funding_amount * (charge.payout_percentage / 100);
             }
             return total;
-        }, 0);
+        }, 0).toFixed(2));        
     };
+
     const calculateTotalApprovedPayout = () => {
-        return payoutSummary.reduce((sum, row) => sum + parseFloat(row.total_payout || 0), 0);
+        return parseFloat(payoutSummary.reduce((sum, row) => sum + parseFloat(row.total_payout || 0), 0).toFixed(2));
       };
-      
+
+      useEffect(() => {
+        if (activeTab === "approved") {
+            fetch("http://localhost:5001/approved-allocations")
+                .then(res => res.json())
+                .then(data => {
+                    const map = {};
+                    data.forEach(row => {
+                        if (!map[row.id]) map[row.id] = {};
+                        map[row.id][row.full_name] = row.allocation_amount;
+                    });
+                    setApprovedAllocationsMap(map);
+                })
+                .catch(err => console.error("Error loading approved allocations:", err));
+        }
+    }, [activeTab]);
     
     return (
         <div className="flex flex-col items-center pt-6">
@@ -459,7 +542,13 @@ const ICExecTable = () => {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {filteredChargesByTab.map((charge, index) => (
+                                        {filteredChargesByTab
+                                        .filter(charge =>
+                                            (charge.mod_id || charge.breakout_id).toLowerCase().includes(searchQuery.toLowerCase()) ||
+                                            (charge.charge_code || "").toLowerCase().includes(searchQuery.toLowerCase())
+                                        )
+                                        .map((charge, index) => (
+
                                                 <React.Fragment key={charge.mod_id}>
                                                     <tr
                                                         key={index}
@@ -612,6 +701,7 @@ const ICExecTable = () => {
                                                                     return new Intl.NumberFormat("en-US", {
                                                                     style: "decimal",
                                                                     minimumFractionDigits: 2,
+                                                                    maximumFractionDigits: 2,
                                                                     }).format(amount);
                                                                 })()}
                                                                 </span>
@@ -619,9 +709,13 @@ const ICExecTable = () => {
                                                         </td>
 
                                                         <td className="px-2 py-2 text-right">
-                                                            {activeTab === "unapproved" &&
-                                                                subMods[charge.mod_id] &&
-                                                                subMods[charge.mod_id].length > 0 && (
+                                                        {(activeTab === "unapproved" || activeTab === "approved") &&
+                                                            expandedMods[charge.mod_id] &&
+                                                            subMods[charge.mod_id] &&
+                                                            subMods[charge.mod_id].filter(b =>
+                                                                activeTab === "approved" ? approvedMods.includes(b.breakout_id) : !approvedMods.includes(b.breakout_id)
+                                                            ).length > 0 && (
+
                                                                 <button 
                                                                     className="px-2 py-1 text-sm bg-gray-400 text-white rounded"
                                                                     onClick={(e) => {
@@ -637,7 +731,8 @@ const ICExecTable = () => {
                                                         </td>
 
                                                     </tr>
-                                                    {activeTab === "unapproved" &&
+                                                    {(activeTab === "unapproved" || activeTab === "approved") &&
+
                                                         expandedMods[charge.mod_id] &&
                                                         subMods[charge.mod_id] &&
                                                         subMods[charge.mod_id].length > 0 && (
@@ -646,7 +741,38 @@ const ICExecTable = () => {
                                                                 <table className="w-full table-fixed divide-y divide-gray-700 text-sm">
                                                                     <tbody>
                                                                     {subMods[charge.mod_id]
-                                                                    .filter(b => !approvedMods.includes(b.breakout_id))
+                                                                    .filter(b =>
+                                                                        activeTab === "approved"
+                                                                          ? approvedMods.includes(b.breakout_id)
+                                                                          : !approvedMods.includes(b.breakout_id)
+                                                                      )
+                                                                    .sort((a, b) => {
+                                                                        const idA = a.breakout_id;
+                                                                        const idB = b.breakout_id;
+
+                                                                        if (!idA || !idB) return 0;
+                                                                      
+                                                                        const regex = /(\d+|\D+)/g;
+                                                                        const partsA = idA.match(regex);
+                                                                        const partsB = idB.match(regex);
+                                                                      
+                                                                        for (let i = 0; i < Math.max(partsA.length, partsB.length); i++) {
+                                                                          const partA = partsA[i] || "";
+                                                                          const partB = partsB[i] || "";
+                                                                      
+                                                                          const numA = Number(partA);
+                                                                          const numB = Number(partB);
+                                                                      
+                                                                          if (!isNaN(numA) && !isNaN(numB)) {
+                                                                            if (numA !== numB) return numA - numB;
+                                                                          } else {
+                                                                            if (partA !== partB) return partA.localeCompare(partB);
+                                                                          }
+                                                                        }
+                                                                      
+                                                                        return 0;
+                                                                      })
+                                                                      
                                                                     .map((breakout) => (
 
                                                                             <tr
@@ -732,14 +858,18 @@ const ICExecTable = () => {
                                                                                 </td>
 
                                                                                 <td className="px-2 py-2 text-right">
-                                                                                <div className="flex items-center">
+                                                                                {activeTab === "approved" ? (
+                                                                                    <div className="text-right text-corvid-blue font-semibold">
+                                                                                    {(breakout.payout_percentage ?? "N/A") + "%"}
+                                                                                    </div>
+                                                                                ) : (
+                                                                                    <div className="flex items-center">
                                                                                     <input
                                                                                         type="number"
                                                                                         min="1"
                                                                                         max="100"
                                                                                         className="w-full border px-2 py-1"
                                                                                         value={breakout.payout_percentage !== null && breakout.payout_percentage !== undefined ? breakout.payout_percentage : ""}
-
                                                                                         onChange={async (e) => {
                                                                                         const newVal = e.target.value === "" ? null : parseFloat(e.target.value);
 
@@ -769,8 +899,9 @@ const ICExecTable = () => {
                                                                                     />
                                                                                     <span className="ml-1 font-bold text-corvid-blue">%</span>
                                                                                     </div>
-
+                                                                                )}
                                                                                 </td>
+
                                                                                 <td className="px-2 py-2">
                                                                                     {breakout.funding_amount && breakout.payout_percentage ? (
                                                                                         <div className="flex justify-between">
@@ -779,6 +910,7 @@ const ICExecTable = () => {
                                                                                             {new Intl.NumberFormat("en-US", {
                                                                                             style: "decimal",
                                                                                             minimumFractionDigits: 2,
+                                                                                            maximumFractionDigits: 2,
                                                                                             }).format(breakout.funding_amount * (breakout.payout_percentage / 100))}
                                                                                         </span>
                                                                                         </div>
@@ -814,6 +946,7 @@ const ICExecTable = () => {
                                 <div className="w-2/6 pl-4">
                                 {selectedCharge && (
                                     <div className="flex justify-center mb-2">
+                                        {activeTab === "unapproved" &&
                                         <button
                                         className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700"
                                         onClick={async () => {
@@ -822,18 +955,52 @@ const ICExecTable = () => {
                                             const updatedFlagged = !isFlagged;
                                         
                                             await fetch("http://localhost:5001/flag-for-approval", {
-                                            method: "POST",
-                                            headers: { "Content-Type": "application/json" },
-                                            body: JSON.stringify({
-                                                mod_id: selectedCharge.mod_id,
-                                                breakout_id: selectedCharge.breakout_id,
-                                                flagged: updatedFlagged
-                                            })
+                                                method: "POST",
+                                                headers: { "Content-Type": "application/json" },
+                                                body: JSON.stringify({
+                                                    mod_id: selectedCharge.mod_id,
+                                                    breakout_id: selectedCharge.breakout_id,
+                                                    flagged: updatedFlagged
+                                                })
                                             });
                                         
-                                            setFlaggedRows((prev) =>
-                                            updatedFlagged ? [...prev, id] : prev.filter((row) => row !== id)
+                                            setFlaggedRows(prev =>
+                                                updatedFlagged ? [...prev, id] : prev.filter(row => row !== id)
                                             );
+                                        
+                                            setSelectedCharge(prev => ({
+                                                ...prev,
+                                                flagged_for_approval: updatedFlagged
+                                            }));
+                                        
+                                            if (selectedCharge.breakout_id) {
+                                                setSubMods(prev => {
+                                                    const updated = prev[selectedCharge.parent_mod_id]
+                                                      .map(b =>
+                                                        b.breakout_id === selectedCharge.breakout_id
+                                                          ? { ...b, flagged_for_approval: updatedFlagged }
+                                                          : b
+                                                      )
+                                                      .sort((a, b) => {
+                                                        const idA = a.breakout_id;
+                                                        const idB = b.breakout_id;
+                                                        const splitA = idA.split(/[^0-9]+/).map(Number);
+                                                        const splitB = idB.split(/[^0-9]+/).map(Number);
+                                                        for (let i = 0; i < Math.max(splitA.length, splitB.length); i++) {
+                                                          if ((splitA[i] || 0) !== (splitB[i] || 0)) {
+                                                            return (splitA[i] || 0) - (splitB[i] || 0);
+                                                          }
+                                                        }
+                                                        return 0;
+                                                      });
+                                                  
+                                                    return {
+                                                      ...prev,
+                                                      [selectedCharge.parent_mod_id]: updated
+                                                    };
+                                                  });
+                                                  
+                                            }
                                         }}
                                         
                                         >
@@ -841,6 +1008,7 @@ const ICExecTable = () => {
                                             ? "Unflag"
                                             : "Flag for Approval"}
                                         </button>
+                                        }   
                                     </div>
                                     )}
 
@@ -910,12 +1078,12 @@ const ICExecTable = () => {
                                                                 <input
                                                                     type="number"
                                                                     className="w-full border px-2 py-1 text-center text-corvid-blue"
-                                                                    value={editedAverages[fullName] ?? ""}
+                                                                    value={editedAverages[`${fullName}|${selectedCharge.mod_id}`] ?? ""}
                                                                     onChange={(e) => {
                                                                         const val = e.target.value;
                                                                         setEditedAverages(prev => ({
                                                                             ...prev,
-                                                                            [fullName]: val
+                                                                            [`${fullName}|${selectedCharge.mod_id}`]: val
                                                                         }));
                                                                     }}
                                                                 />
@@ -936,9 +1104,10 @@ const ICExecTable = () => {
                                                     val !== undefined && val !== null ? parseFloat(val) : 0
                                                 );
                                     
-                                                const avg = editedAverages[fullName] !== undefined && editedAverages[fullName] !== ""
-                                                    ? parseFloat(editedAverages[fullName])
-                                                    : (values.length ? values.reduce((sum, val) => sum + val, 0) / values.length : 0);
+                                                const avgKey = `${fullName}|${selectedCharge.mod_id}`;
+                                                const avg = editedAverages[avgKey] !== undefined && editedAverages[avgKey] !== ""
+                                                ? parseFloat(editedAverages[avgKey])
+                                                : (values.length ? values.reduce((sum, val) => sum + val, 0) / values.length : 0);
                                     
                                                 const totalPayout = selectedCharge.funding_amount * (selectedCharge.payout_percentage / 100);
                                                 const individualPayout = (avg / 100) * totalPayout;
@@ -947,11 +1116,16 @@ const ICExecTable = () => {
                                                     <div key={fullName} className="flex justify-between py-1">
                                                         <span className="font-semibold">{fullName}:</span>
                                                         <span>
-                                                            {new Intl.NumberFormat("en-US", {
-                                                                style: "currency",
-                                                                currency: "USD"
-                                                            }).format(individualPayout)}
+                                                        {new Intl.NumberFormat("en-US", {
+                                                            style: "currency",
+                                                            currency: "USD"
+                                                        }).format(individualPayout)}
+                                                        {" "}
+                                                        (
+                                                        {((individualPayout / totalPayout) * 100).toFixed(2)}%
+                                                        )
                                                         </span>
+
                                                     </div>
                                                 );
                                             })}
@@ -966,8 +1140,9 @@ const ICExecTable = () => {
                                                             const values = Object.values(allocationData).map(val =>
                                                                 val !== undefined && val !== null ? parseFloat(val) : 0
                                                             );
-                                                            const avg = editedAverages[fullName] !== undefined && editedAverages[fullName] !== ""
-                                                                ? parseFloat(editedAverages[fullName])
+                                                            const avgKey = `${fullName}|${selectedCharge.mod_id}`;
+                                                            const avg = editedAverages[avgKey] !== undefined && editedAverages[avgKey] !== ""
+                                                                ? parseFloat(editedAverages[avgKey])
                                                                 : (values.length ? values.reduce((s, v) => s + v, 0) / values.length : 0);
                                                             return sum + ((avg / 100) * selectedCharge.funding_amount * (selectedCharge.payout_percentage / 100));
                                                         }, 0)
@@ -996,11 +1171,28 @@ const ICExecTable = () => {
                                         <h3 className="text-md font-bold text-corvid-blue underline">Financial Notes:</h3>
                                         {activeTab === "unapproved" ? (
                                             <textarea
-                                                placeholder="Enter financial notes..."
-                                                className="w-full mt-4 p-2 border border-gray-300 rounded text-corvid-blue"
-                                                value={approverNote}
-                                                onChange={(e) => setApproverNote(e.target.value)}
-                                            />
+                                            placeholder="Enter financial notes..."
+                                            className="w-full mt-4 p-2 border border-gray-300 rounded text-corvid-blue"
+                                            value={approverNote}
+                                            onChange={async (e) => {
+                                              const newNote = e.target.value;
+                                              setApproverNote(newNote);
+                                          
+                                              const mod_id = selectedCharge?.mod_id;
+                                              const breakout_id = selectedCharge?.breakout_id;
+                                          
+                                              await fetch("http://localhost:5001/save-draft-note", {
+                                                method: "POST",
+                                                headers: { "Content-Type": "application/json" },
+                                                body: JSON.stringify({
+                                                  mod_id,
+                                                  breakout_id,
+                                                  financial_notes: newNote,
+                                                }),
+                                              });
+                                            }}
+                                          />
+                                          
                                             ) : (
                                             <div className="w-full mt-4 p-2 rounded bg-gray-100 text-corvid-blue whitespace-pre-wrap">
                                                 {approverNote || "No financial notes available."}

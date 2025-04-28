@@ -1230,11 +1230,34 @@ app.post("/approve-payouts", async (req, res) => {
                     financial_notes = EXCLUDED.financial_notes`,
                 [mod_id, breakout_id, employee_id, allocation_amount, financial_notes || null]
             );
+
+            await pool.query(
+                `UPDATE financial_data.testing_mods
+                 SET flagged_for_approval = false
+                 WHERE mod_id = $1`,
+                [mod_id]
+              );
+              
+              if (breakout_id) {
+                await pool.query(
+                  `UPDATE financial_data.testing_breakouts
+                   SET flagged_for_approval = false
+                   WHERE breakout_id = $1`,
+                  [breakout_id]
+                );
+              }
+              
             
         }
 
         await client.query("COMMIT");
         res.json({ message: "Payouts approved successfully!" });
+
+        await pool.query(
+            `DELETE FROM financial_data.testing_draft_approval WHERE mod_id = $1 AND breakout_id IS NOT DISTINCT FROM $2`,
+            [mod_id, breakout_id]
+          );
+          
     } catch (err) {
         await client.query("ROLLBACK");
         console.error("Error approving payouts:", err);
@@ -1493,7 +1516,324 @@ app.post("/flag-for-approval", async (req, res) => {
     }
 });
 
+app.post("/save-draft-note", async (req, res) => {
+    const { mod_id, breakout_id, financial_notes } = req.body;
+
+    if (!mod_id) return res.status(400).json({ error: "mod_id is required" });
+
+    try {
+        await pool.query(
+            `INSERT INTO financial_data.testing_draft_approval (mod_id, breakout_id, financial_notes)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (draft_key)
+             DO UPDATE SET financial_notes = EXCLUDED.financial_notes`,
+            [mod_id, breakout_id || null, financial_notes]
+        );
+
+        res.json({ message: "Draft note saved." });
+    } catch (err) {
+        console.error("Error saving draft note:", err);
+        res.status(500).json({ error: "Server error" });
+    }
+});
+
+app.get("/draft-financial-note/:mod_id", async (req, res) => {
+    const { mod_id } = req.params;
+
+    try {
+        const result = await pool.query(
+            `SELECT financial_notes 
+             FROM financial_data.testing_draft_approval 
+             WHERE mod_id = $1`,
+            [mod_id]
+        );
+
+        if (result.rows.length > 0) {
+            res.json({ financial_notes: result.rows[0].financial_notes });
+        } else {
+            res.json({ financial_notes: "" });
+        }
+    } catch (err) {
+        console.error("Error fetching draft financial note:", err);
+        res.status(500).json({ error: "Server error" });
+    }
+});
+
+app.get('/onboarding_hr', async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT
+                ew.employee_id,
+                ew.employee_name,
+                ew.employee_start_date,
+                ew.company,
+                ew.employment_type,
+                ew.recruitment_source,
+                ew.work_location,
+                ew.employee_salary,
+                ew.hr_status,
+                ew.it_status,
+                ew.career_start_date,
+                ew.termed_date,
+                sw.supervisor_name,
+                sw.supervisor_id
+            FROM
+                financial_data.employees_w ew
+            LEFT JOIN
+                financial_data.supervisors_w sw ON ew.supervisor_id = sw.supervisor_id` // Assuming 'supervisor_id' is the foreign key in employees_w
+        );
+        res.json(result.rows);
+    } catch (err) {
+        console.error('Error fetching employees_w data with supervisor names:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.get('/onboarding_admin', async (req, res) => {
+    try {
+        const result = await pool.query(
+            'SELECT employee_id, employee_name, employee_start_date, company, employment_type, recruitment_source, work_location, employee_salary, hr_status, it_status, career_start_date, termed_date FROM financial_data.employees_w'); // Replace 'financial_data' if needed
+        res.json(result.rows);
+    } catch (err) {
+        console.error('Error fetching employees_w data:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+
+
+app.put('/onboarding_it/:employee_id', async (req, res) => {
+    const { employee_id } = req.params;
+    const {
+        it_status,
+        hr_status,
+        employee_email,
+        email_date,
+        login_id,
+        computer_date,
+        work_location,
+        termed_date
+    } = req.body;
+
+    try {
+        const updateFields = [];
+        const values = [];
+        let paramIndex = 1;
+
+        if (it_status !== undefined) {
+            updateFields.push(`it_status = $${paramIndex++}`);
+            values.push(it_status);
+        }
+        if (hr_status !== undefined) {
+            updateFields.push(`hr_status = $${paramIndex++}`);
+            values.push(hr_status);
+        }
+        if (employee_email !== undefined) {
+            updateFields.push(`employee_email = $${paramIndex++}`);
+            values.push(employee_email);
+        }
+        if (email_date !== undefined) {
+            updateFields.push(`email_date = $${paramIndex++}`);
+            values.push(email_date === '' ? null : email_date); // Convert empty string to null
+        }
+        if (login_id !== undefined) {
+            updateFields.push(`login_id = $${paramIndex++}`);
+            values.push(login_id);
+        }
+        if (computer_date !== undefined) {
+            updateFields.push(`computer_date = $${paramIndex++}`);
+            values.push(computer_date === '' ? null : computer_date); // Convert empty string to null
+        }
+        if (work_location !== undefined) {
+            updateFields.push(`work_location = $${paramIndex++}`);
+            values.push(work_location);
+        }
+        if (termed_date !== undefined) {
+            updateFields.push(`termed_date = $${paramIndex++}`);
+            values.push(termed_date);
+        }
+
+        if (updateFields.length === 0) {
+            return res.status(400).json({ error: 'No fields to update provided' });
+        }
+
+        const query = `
+            UPDATE financial_data.employees_w
+            SET ${updateFields.join(', ')}
+            WHERE employee_id = $${paramIndex}
+        `;
+        values.push(employee_id);
+
+        const result = await pool.query(query, values);
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: 'Record not found' });
+        }
+
+        const updatedRecordResult = await pool.query(
+            'SELECT * FROM financial_data.employees_w WHERE employee_id = $1',
+            [employee_id]
+        );
+
+        res.json(updatedRecordResult.rows[0]);
+    } catch (err) {
+        console.error('Error updating record:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.put('/onboarding_hr/:employee_id', async (req, res) => {
+    console.log('PUT /onboarding_hr/:employee_id called!');
+    const { employee_id } = req.params;
+    const {
+        hr_status,
+        it_status,
+        employee_email,
+        employment_type,
+        company,
+        employee_start_date,
+        work_location,
+        employee_salary,
+        recruitment_source,
+        career_start_date,
+        termed_date,
+        supervisor_id
+    } = req.body;
+
+    try {
+        const updateFields = [];
+        const values = [];
+        let paramIndex = 1;
+
+        if (hr_status !== undefined) {
+            updateFields.push(`hr_status = $${paramIndex++}`);
+            values.push(hr_status);
+        }
+        if (it_status !== undefined) {
+            updateFields.push(`it_status = $${paramIndex++}`);
+            values.push(it_status);
+        }
+        if (employee_email !== undefined) {
+            updateFields.push(`employee_email = $${paramIndex++}`);
+            values.push(employee_email);
+        }
+        if (employment_type !== undefined) {
+            updateFields.push(`employment_type = $${paramIndex++}`);
+            values.push(employment_type);
+        }
+        if (company !== undefined) {
+            updateFields.push(`company = $${paramIndex++}`);
+            values.push(company);
+        }
+        if (employee_start_date !== undefined) {
+            updateFields.push(`employee_start_date = $${paramIndex++}`);
+            values.push(employee_start_date === '' ? null : employee_start_date); // Handle empty start_date
+        }
+        if (work_location !== undefined) {
+            updateFields.push(`work_location = $${paramIndex++}`);
+            values.push(work_location);
+        }
+        if (employee_salary !== undefined) {
+            updateFields.push(`employee_salary = $${paramIndex++}`);
+            values.push(employee_salary);
+        }
+        if (recruitment_source !== undefined) {
+            updateFields.push(`recruitment_source = $${paramIndex++}`);
+            values.push(recruitment_source);
+        }
+        if (career_start_date !== undefined) {
+            updateFields.push(`career_start_date = $${paramIndex++}`);
+            values.push(career_start_date);
+        }
+        if (termed_date !== undefined) {
+            updateFields.push(`termed_date = $${paramIndex++}`);
+            values.push(termed_date);
+        }
+        if (supervisor_id !== undefined) {
+            updateFields.push(`supervisor_id = $${paramIndex++}`);
+            values.push(supervisor_id);
+        }
+
+        if (updateFields.length === 0) {
+            return res.status(400).json({ error: 'No fields to update provided' });
+        }
+
+        const query = `
+            UPDATE financial_data.employees_w
+            SET ${updateFields.join(', ')}
+            WHERE employee_id = $${paramIndex}
+        `;
+        values.push(employee_id);
+
+        const result = await pool.query(query, values);
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: 'Record not found' });
+        }
+
+        const updatedRecordResult = await pool.query(
+            'SELECT * FROM financial_data.employees_w WHERE employee_id = $1',
+            [employee_id]
+        );
+
+        res.json(updatedRecordResult.rows[0]);
+    } catch (err) {
+        console.error('Error updating record:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.get("/approved-allocations", async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT 
+                COALESCE(a.breakout_id, a.mod_id) AS id,
+                e.full_name,
+                a.allocation_amount
+            FROM financial_data.testing_approved_allocations a
+            JOIN financial_data.employee e ON a.employee_id = e.employee_id
+        `);
+
+        res.json(result.rows);
+    } catch (err) {
+        console.error("Error fetching approved allocations:", err);
+        res.status(500).json({ error: "Server error" });
+    }
+});
+
+app.get("/payout-history", async (req, res) => {
+    const { email } = req.query;
   
+    if (!email) {
+      return res.status(400).json({ error: "Missing email" });
+    }
+  
+    try {
+      // Step 1: Get employee_id from email
+      const empResult = await pool.query(
+        `SELECT employee_id FROM financial_data.employee WHERE email = $1`,
+        [email]
+      );
+  
+      if (empResult.rows.length === 0) {
+        return res.status(404).json({ error: "Employee not found for this email" });
+      }
+  
+      const employeeId = empResult.rows[0].employee_id;
+  
+      // Step 2: Get payout history from approved data table
+      const payoutResult = await pool.query(
+        `SELECT mod_id, charge_code, description, mod, payout
+         FROM financial_data.testing_approved_employee_data
+         WHERE employee_id = $1`,
+        [employeeId]
+      );
+      res.json(payoutResult.rows);
+    } catch (err) {
+      console.error("Error fetching payout history:", err);
+      res.status(500).json({ error: "Server error fetching payout history" });
+    }
+  });
 
 
 const PORT = process.env.PORT || 5001;

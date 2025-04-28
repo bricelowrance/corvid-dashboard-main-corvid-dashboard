@@ -23,6 +23,8 @@ const ICVoterTables = () => {
     const [newTipAllocations, setNewTipAllocations] = useState([]);
     const [submittedAllocations, setSubmittedAllocations] = useState([]);
     const [submittedNotes, setSubmittedNotes] = useState("");
+    const [payoutHistory, setPayoutHistory] = useState([]);
+
 
     useEffect(() => {
         const user = JSON.parse(localStorage.getItem("user"));
@@ -616,6 +618,33 @@ const ICVoterTables = () => {
         0
     );
 
+    useEffect(() => {
+        const fetchPayoutHistory = async () => {
+          if (activeTab !== "payout") return;
+      
+          const user = JSON.parse(localStorage.getItem("user"));
+          if (!user || !user.email) return;
+      
+          try {
+            const res = await fetch(`http://localhost:5001/payout-history?email=${user.email}`);
+            const data = await res.json();
+      
+            console.log("Fetched payout history:", data); 
+      
+            if (res.ok) {
+              setPayoutHistory(data);
+            } else {
+              console.error("Failed to load payout history:", data.error);
+            }
+          } catch (err) {
+            console.error("Error fetching payout history:", err);
+          }
+        };
+      
+        fetchPayoutHistory();
+      }, [activeTab]);
+      
+
     const handleRowClick = async (charge) => {
         const user = JSON.parse(localStorage.getItem("user"));
         const userFullName = `${user.lastName}, ${user.firstName}`;
@@ -913,14 +942,14 @@ const ICVoterTables = () => {
     }, [activeTab, submittedCharges, unsubmittedCharges]);
     
     
+      
     
 
     return (
         <div className="flex flex-col flex-1 w-full">
             <div className="bg-white shadow-lg p-10 border border-gray-700 flex flex-col flex-1 w-full">
                 <h2 className="text-xl font-extrabold text-red-600 mb-6 text-center">
-                    *** Important Deadlines: Allocation votes must be submitted by April 15th
-                    and payroll will be processed April 22nd ***
+                   
                 </h2>
                 <div className="flex justify-left space-x-4 mb-4">
                     <button 
@@ -941,11 +970,17 @@ const ICVoterTables = () => {
                     >
                         Spot Bonuses
                     </button>
+                    <button 
+                        className={`px-4 py-2 font-bold text-md rounded ${activeTab === "payout" ? "bg-gray-500 text-white" : "bg-gray-200 text-corvid-blue"}`}
+                        onClick={() => setActiveTab("payout")}
+                    >
+                        Payout History
+                    </button>
 
                 </div>
 
                 {/* LARGER TABLE */}
-                {activeTab !== "tips" && (
+                {activeTab !== "tips" && activeTab !== "payout" && (
                 <div className="flex flex-1 w-full">
                     <div className="w-2/3 pr-4 flex flex-col h-screen">
                         <input
@@ -1559,6 +1594,71 @@ const ICVoterTables = () => {
                         </table>
                     </div>
                     )}
+                    
+
+                </div>
+                )}
+                {activeTab === "payout" && (
+                    <div className="mt-6">
+                    <h3 className="text-xl font-bold text-corvid-blue mb-4">Your Payout History</h3>
+                    <table className="w-full table-fixed divide-y divide-gray-700 text-sm mb-4">
+                    <thead>
+                        <tr>
+                        <th className="w-[12.5%] px-2 py-2 text-left font-bold text-corvid-blue uppercase">Mod ID</th>
+                        <th className="w-[12.5%] px-2 py-2 text-left font-bold text-corvid-blue uppercase">Charge Code</th>
+                        <th className="w-1/2 px-2 py-2 text-left font-bold text-corvid-blue uppercase">Description</th>
+                        <th className="w-[12.5%] px-2 py-2 text-left font-bold text-corvid-blue uppercase">Mod</th>
+                        <th className="w-[12.5%] px-2 py-2 text-right font-bold text-corvid-blue uppercase">Payout</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+                        {payoutHistory.map((entry, index) => (
+                        <tr key={index} className="text-corvid-blue border-b">
+                            <td className="w-[12.5%] px-2 py-2">{entry.mod_id}</td>
+                            <td className="w-[12.5%] px-2 py-2">{entry.charge_code}</td>
+                            <td className="w-1/2 px-2 py-2">{entry.description}</td>
+                            <td className="w-[12.5%] px-2 py-2">{entry.mod}</td>
+                            <td className="w-[12.5%] px-2 py-2 font-medium text-corvid-blue">
+
+                            <div className="flex justify-between">
+                                <span>$</span>
+                                <span className="text-right">
+                                {Number(entry.payout).toLocaleString(undefined, {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                })}
+                                </span>
+                            </div>
+                            </td>
+
+                        </tr>
+                        ))}
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <td className="w-[12.5%]"></td>
+                            <td className="w-[12.5%]"></td>
+                            <td className="w-1/2"></td>
+                            <td className="w-[12.5%] text-right font-bold text-corvid-blue pt-4">Total Payout:</td>
+                            <td className="w-[12.5%] text-right font-bold text-corvid-blue pt-4 pr-2">
+                            <div className="flex justify-between pl-2">
+                                <span>$</span>
+                                <span className="text-right">
+                                {payoutHistory
+                                    .reduce((sum, item) => sum + parseFloat(item.payout || 0), 0)
+                                    .toLocaleString(undefined, {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                    })}
+                                </span>
+                            </div>
+                            </td>
+                        </tr>
+                        </tfoot>
+
+
+                    </table>
                 </div>
                 )}
             </div>

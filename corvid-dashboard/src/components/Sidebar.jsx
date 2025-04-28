@@ -13,6 +13,7 @@ const ALL_SIDEBAR_ITEMS = [
     { name: "Employee Directory", icon: BookUser, color: "#23356b", href: "/direct", roles: ["ADMIN", "FINANCE", "EXECUTIVE", "EMPLOYEE"] },
     { name: "Edit Profile", icon: UserRoundPen, color: "#23356b", href: "/profile", roles: ["ADMIN", "FINANCE", "EXECUTIVE", "EMPLOYEE"] },
     { name: "IC Admin", icon: UserRoundPen, color: "#23356b", href: "/icadmin", roles: ["ADMIN"] },
+    { name: "Track ADMIN", icon: UserRoundPen, color: "#23356b", href: "/at", roles: ["ADMIN"] },
 ];
 
 const Sidebar = () => {
